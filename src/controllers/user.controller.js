@@ -3,6 +3,25 @@ import { ApiError } from "../utils/ApiError.js";
 import { User }  from "../models/user.model.js"
 import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import {ApiResponse} from "../utils/ApiResponse.js"
+
+const generateAccessAndRefreshTokens = async(userId)=>
+{
+    try {
+        const user = await User.findById(userId)
+        const accessToken = user.generateAccessToken()
+        const refreshToken = user.generateRfreshToken()
+        user.refreshToken = refreshToken;
+        await user.save({
+            validateBeforeSave: false
+        })
+
+        return { accessToken ,refreshToken};
+        
+    } catch (error) {
+        throw new ApiError(500,"Something went wrong while generating refresh and access token")
+    }
+}
+
 const registerUser = asyncHandler( async (req,res) =>{
     // res.status(200).json({
     //     message:"Learn Backend from Chai Aur Code"
@@ -102,6 +121,60 @@ const loginUser = asyncHandler (async (req,res) => {
     //access and refresh token
     // send cookie (for tokens)
 
+    const {email,username,password} = req.body
+
+    if(!username || !email)
+    {
+        throw new ApiError(400,"username or password is required")
+    }
+
+    const user = await User.findOne({
+        $or:[{username},{email}]
+    })
+    if(!user)
+    {
+        throw new ApiError(404,"User Does Not Exist")
+    }
+
+    const isPasswordValid = await user.isPassWordCorrect(password)
+    if(!isPasswordValid)
+    {
+        throw new ApiError(401,"Invalid user Credential")
+    }
+
+    const {accessToken,refreshToken} = await generateAccessAndRefreshTokens(user._id)
+
+    const loggedInUser = await User.findById(user._id).
+    select("-password -refreshToken");
+
+    const options = {
+        httpOnly: true,
+        secure:true
+    }
+
+    return res.
+    status(200).
+    cookie("accessToken",accessToken,options).
+    cookie("refreshToken",refreshToken,options).
+    json(
+        new ApiResponse(200,{
+            user:loggedInUser,accessToken,
+            refreshToken
+        },
+        "User logged in Successfully"
+        )
+    )
+
+
 })
 
-export {registerUser}
+const logoutUser = asyncHandler(async(req,res)=>{
+    
+})
+
+
+
+export {
+    registerUser,
+    loginUser
+}
